@@ -1,16 +1,26 @@
 #!/bin/bash
-
-# Folder create karna zaruri hai
 mkdir -p /app/data
 
 echo "🚀 Starting Telegram C++ API Server..."
-# API Server ko background me start karein
+# API Server start karein
 telegram-bot-api --local --api-id="${API_ID}" --api-hash="${API_HASH}" --http-port=8081 --dir=/app/data &
 
-# Jab tak port 8081 open na ho jaye, wait karein (Maximum 30 seconds)
-echo "⏳ Waiting for Local API Server to wake up on port 8081..."
-timeout 30s bash -c 'until printf "" 2>>/dev/null >/dev/tcp/127.0.0.1/8081; do sleep 1; done'
+echo "⏳ Waiting for Local API Server (Port 8081) to start..."
+# 30 seconds tak check karega ki port 8081 active hua ya nahi
+for i in {1..30}; do
+    if nc -z 127.0.0.1 8081; then
+        echo "✅ Local API Server is LIVE!"
+        break
+    fi
+    echo "Waiting... ($i/30)"
+    sleep 1
+done
 
-echo "✅ Local API Server is UP!"
+# Agar 30 sec baad bhi server nahi chala toh error dega
+if ! nc -z 127.0.0.1 8081; then
+    echo "❌ ERROR: Local API Server failed to start. Check your API_ID and API_HASH."
+    exit 1
+fi
+
 echo "🚀 Starting Python Bot..."
 python3 main.py
