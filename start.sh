@@ -2,28 +2,28 @@
 mkdir -p /app/data
 chmod 777 /app/data
 
-echo "🛠️ Checking Environment Variables..."
-if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
-    echo "❌ ERROR: API_ID or API_HASH is missing in Render Environment Variables!"
+echo "🛠️ Validating API Credentials..."
+if [[ -z "$API_ID" || -z "$API_HASH" || -z "$BOT_TOKEN" ]]; then
+    echo "❌ ERROR: API_ID, API_HASH, or BOT_TOKEN is MISSING in Render Env Variables!"
     exit 1
 fi
 
 echo "🚀 Starting Telegram C++ API Server..."
-# Is baar hum logs ko 'api_logs.txt' me save karenge taaki error dekh sakein
-telegram-bot-api --local --api-id="${API_ID}" --api-hash="${API_HASH}" --http-port=8081 --dir=/app/data --verbosity=1 > api_logs.txt 2>&1 &
+# API Server ko direct run karke logs capture karein
+telegram-bot-api --local --api-id="${API_ID}" --api-hash="${API_HASH}" --http-port=8081 --dir=/app/data --verbosity=1 > api_output.log 2>&1 &
 
-echo "⏳ Waiting for Local API Server (Port 8081)..."
-for i in {1..20}; do
+echo "⏳ Checking Server Status..."
+for i in {1..15}; do
     if nc -z 127.0.0.1 8081; then
-        echo "✅ Local API Server is LIVE!"
+        echo "✅ SUCCESS: Local API Server is LIVE on port 8081!"
         python3 main.py
         exit 0
     fi
-    echo "Waiting... ($i/20)"
+    echo "Waiting... ($i/15)"
     sleep 2
 done
 
-echo "❌ ERROR: Local API Server failed to start."
-echo "📝 --- LAST 20 LINES OF API LOGS ---"
-tail -n 20 api_logs.txt
+echo "❌ FATAL ERROR: Local API Server could not start."
+echo "📝 --- SHOWING BINARY LOGS ---"
+cat api_output.log
 exit 1
