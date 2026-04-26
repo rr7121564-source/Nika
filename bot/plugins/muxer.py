@@ -17,11 +17,9 @@ def get_valid_font():
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     font_dir = os.path.join(base_dir, "fonts")
     os.makedirs(font_dir, exist_ok=True)
-    
     for file in os.listdir(font_dir):
         if file.lower().endswith(('.ttf', '.otf')):
             return os.path.join(font_dir, file)
-            
     fallback = os.path.join(font_dir, "Roboto-Regular.ttf")
     if not os.path.exists(fallback):
         urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf", fallback)
@@ -32,45 +30,44 @@ async def handle_files(client, message):
     if not is_allowed_chat(message.chat.id): return
     
     user_id = message.from_user.id
-    if user_id not in USER_STATE:
-        USER_STATE[user_id] = {'state': 'IDLE'}
+    if user_id not in USER_STATE: USER_STATE[user_id] = {'state': 'IDLE', 'delete_ids':[]}
 
     file_name = (message.video.file_name if message.video else message.document.file_name) or "file.ext"
     file_name = file_name.lower()
     state = USER_STATE[user_id].get('state', 'IDLE')
 
-    # STEP 1: Catch MKV
     if file_name.endswith(('.mkv', '.mp4')):
-        USER_STATE[user_id] = {'state': 'WAIT_SUB', 'mkv_msg': message, 'mkv_name': file_name}
-        await message.reply("✅ **MKV File Received!**\n\nAb isme add karne ke liye Subtitle file (`.srt` ya `.ass`) send karein.")
+        bot_msg = await message.reply("✅ **MKV File Received!**\n\nAb isme add karne ke liye Subtitle file (`.srt` ya `.ass`) send karein.")
+        USER_STATE[user_id] = {
+            'state': 'WAIT_SUB', 'mkv_msg': message, 'mkv_name': file_name,
+            'delete_ids':[message.id, bot_msg.id] # 🌟 Pura track rakh raha hai ID's ka
+        }
 
-    # STEP 2: Catch Subtitle
     elif file_name.endswith(('.srt', '.ass')):
         if state != 'WAIT_SUB' or 'mkv_msg' not in USER_STATE[user_id]:
             return await message.reply("⚠️ Pehle MKV Video send karein, uske baad subtitle!")
         
+        kbd = InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Skip (Keep Original Name)", callback_data=f"rename_skip_{user_id}")]])
+        bot_msg = await message.reply("📝 **Rename MKV File:**\n\nAgar aapko naya naam rakhna hai, toh abhi type karke send karein. \n(Ya fir wahi naam rakhne ke liye 'Skip' button dabayein).", reply_markup=kbd)
+        
         USER_STATE[user_id]['sub_msg'] = message
         USER_STATE[user_id]['sub_name'] = file_name
         USER_STATE[user_id]['state'] = 'WAIT_RENAME'
-        
-        kbd = InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Skip (Keep Original Name)", callback_data=f"rename_skip_{user_id}")]])
-        await message.reply("📝 **Rename MKV File:**\n\nAgar aapko naya naam rakhna hai, toh abhi type karke send karein. \n(Ya fir wahi naam rakhne ke liye 'Skip' button dabayein).", reply_markup=kbd)
+        USER_STATE[user_id]['delete_ids'].extend([message.id, bot_msg.id])
 
-# STEP 3A: User types a new name
 @Client.on_message(filters.text & filters.private & ~filters.command(["start", "help", "extract", "addgroup", "removegroup", "groups"]))
 async def handle_rename(client, message):
     user_id = message.from_user.id
     if user_id in USER_STATE and USER_STATE[user_id].get('state') == 'WAIT_RENAME':
         custom_name = message.text.strip()
-        custom_name = os.path.basename(custom_name) # Prevent folder traversal
-        if not custom_name.lower().endswith('.mkv'):
-            custom_name += '.mkv'
+        custom_name = os.path.basename(custom_name)
+        if not custom_name.lower().endswith('.mkv'): custom_name += '.mkv'
             
+        bot_msg = await message.reply(f"✅ Naam Set: `{custom_name}`")
         USER_STATE[user_id]['custom_name'] = custom_name
-        await message.reply(f"✅ Naam Set: `{custom_name}`")
+        USER_STATE[user_id]['delete_ids'].extend([message.id, bot_msg.id])
         await process_muxing_workflow(client, message, user_id)
 
-# STEP 3B: User clicks Skip button
 @Client.on_callback_query(filters.regex(r"^rename_skip_"))
 async def rename_skip_cb(client, query):
     user_id = int(query.data.split("_")[2])
@@ -80,7 +77,6 @@ async def rename_skip_cb(client, query):
     USER_STATE[user_id]['custom_name'] = USER_STATE[user_id].get('mkv_name', 'output.mkv')
     await process_muxing_workflow(client, query.message, user_id)
 
-# THE REAL MUXING PROCESS STARTS HERE
 async def process_muxing_workflow(client, message, user_id):
     if user_id not in USER_LOCKS: USER_LOCKS[user_id] = asyncio.Lock()
     if USER_LOCKS[user_id].locked():
@@ -91,12 +87,13 @@ async def process_muxing_workflow(client, message, user_id):
         if not data: return
         
         mkv_msg, sub_msg, final_name = data['mkv_msg'], data['sub_msg'], data['custom_name']
+        ids_to_delete = data.get('delete_ids',[])
+        
         font_path = get_valid_font()
-        
         msg = await message.reply("📥 **Downloading MKV Video...**")
-        start_time = time.time()
+        ids_to_delete.append(msg.id) # Add progress message ID to delete list
         
-        # DOWNLOADS START AFTER ALL INPUTS
+        start_time = time.time()
         video_path = await mkv_msg.download(file_name=f"downloads/{mkv_msg.id}_video.mkv", progress=progress_for_pyrogram, progress_args=("Downloading Video...", msg, start_time))
         
         await msg.edit("📥 **Downloading Subtitle...**")
@@ -117,11 +114,16 @@ async def process_muxing_workflow(client, message, user_id):
             await client.send_document(
                 chat_id=message.chat.id,
                 document=output_path,
-                caption=f"✅ **Muxed Successfully!**\n📁 File: `{final_name}`\n- Old Subs: Removed\n- New Sub: Hinglish (Default)\n- Attached Fonts from /fonts folder.",
+                caption=f"✅ **Muxed Successfully!**\n📁 File: `{final_name}`\n- Old Subs: Removed\n- New Sub: Hinglish (Default)",
                 progress=progress_for_pyrogram,
                 progress_args=("Uploading Video...", msg, start_time)
             )
-            await msg.delete()
+            
+            # 🌟 CLEANUP COMMAND: Saari purani history aur bot commands yahan ek sath delete honge
+            try:
+                await client.delete_messages(chat_id=message.chat.id, message_ids=list(set(ids_to_delete)))
+            except: pass
+            
         except asyncio.CancelledError:
             await msg.edit("❌ **Task Cancelled by User.**")
         except Exception as e:
