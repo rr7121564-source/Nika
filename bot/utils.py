@@ -1,5 +1,6 @@
 import math
 import time
+import asyncio
 
 LANG_MAP = {
     'eng': 'English', 'hin': 'Hindi', 'ara': 'Arabic', 'fre': 'French',
@@ -11,33 +12,46 @@ LANG_MAP = {
 }
 
 def get_lang_name(code):
-    """eng ko English me convert karne ke liye"""
     return LANG_MAP.get(code.lower(), code.title())
+
+# Progress bar ko limit karne ke liye (Taaki download stuck na ho)
+LAST_UPDATE_TIME = {}
+
+async def edit_msg(message, text):
+    """Background task to edit message without blocking Pyrogram download stream."""
+    try:
+        await message.edit_text(text)
+    except Exception:
+        pass
+
+def humanbytes(size):
+    if not size: return "0 B"
+    power = 2**10
+    n = 0
+    Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
+    while size > power:
+        size /= power
+        n += 1
+    return str(math.floor(size * 100) / 100) + " " + Dic_powerN[n] + 'B'
 
 async def progress_for_pyrogram(current, total, ud_type, message, start):
     now = time.time()
-    diff = now - start
-    if round(diff % 5.00) == 0 or current == total: 
+    msg_id = message.id
+    
+    if msg_id not in LAST_UPDATE_TIME:
+        LAST_UPDATE_TIME[msg_id] = start
+        
+    # Sirf har 8 second me ya 100% complete hone par hi update hoga (Download stuck nahi hoga)
+    if current == total or (now - LAST_UPDATE_TIME[msg_id] > 8.0):
+        LAST_UPDATE_TIME[msg_id] = now
         percentage = current * 100 / total
-        speed = current / diff if diff > 0 else 0
-        elapsed_time = round(diff) * 1000
-        time_to_completion = round((total - current) / speed) * 1000 if speed > 0 else 0
-
-        def humanbytes(size):
-            if not size: return "0 B"
-            power = 2**10
-            n = 0
-            Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
-            while size > power:
-                size /= power
-                n += 1
-            return str(math.floor(size * 100) / 100) + " " + Dic_powerN[n] + 'B'
+        speed = current / (now - start) if (now - start) > 0 else 0
 
         progress_str = f"[{'█' * math.floor(percentage / 5)}{'░' * (20 - math.floor(percentage / 5))}] {round(percentage, 2)}%"
-        tmp = progress_str + f"\n\n🚀 **Speed:** {humanbytes(speed)}/s\n" \
-              f"✅ **Done:** {humanbytes(current)} / {humanbytes(total)}"
+        tmp = progress_str + f"\n\n🚀 **Speed:** {humanbytes(speed)}/s\n✅ **Done:** {humanbytes(current)} / {humanbytes(total)}"
         
-        try:
-            await message.edit_text(f"⏳ **{ud_type}**\n\n{tmp}")
-        except:
-            pass
+        # Async non-blocking execution call
+        asyncio.create_task(edit_msg(message, f"⏳ **{ud_type}**\n\n{tmp}"))
+        
+        if current == total:
+            LAST_UPDATE_TIME.pop(msg_id, None)
