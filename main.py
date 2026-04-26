@@ -192,17 +192,22 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎬 **Ultra Muxer Bot is Ready!**\n\n1. Send MKV\n2. Send Subtitle\n3. Rename & Enjoy!")
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).base_url(LOCAL_API_URL).local_mode(True).build()
-    
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("extract", extract_cmd))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO, handle_files))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename))
-    app.add_handler(CallbackQueryHandler(rename_skip_cb, pattern="^ren_skip_"))
-    app.add_handler(CallbackQueryHandler(do_extract_cb, pattern="^ext_"))
-    
-    print("🚀 Ultra-Fast C++ Local Bot is running!")
-    app.run_polling()
+    # Thoda intezaar taaki API server fully ready ho jaye
+    print("⏳ Giving 5 seconds to stabilize connection...")
+    time.sleep(5)
 
-if __name__ == "__main__":
-    main()
+    try:
+        app = ApplicationBuilder().token(BOT_TOKEN).base_url(LOCAL_API_URL).local_mode(True).build()
+        
+        app.add_handler(CommandHandler("start", start_cmd))
+        app.add_handler(CommandHandler("extract", extract_cmd))
+        app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO, handle_files))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename))
+        app.add_handler(CallbackQueryHandler(rename_skip_cb, pattern="^ren_skip_"))
+        app.add_handler(CallbackQueryHandler(do_extract_cb, pattern="^ext_"))
+        
+        print("🚀 Ultra-Fast C++ Local Bot is running!")
+        app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"❌ Failed to start bot: {e}")
+        time.sleep(10) # Crash hone se pehle wait karein
