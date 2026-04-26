@@ -1,17 +1,28 @@
 import math
 import time
 
+LANG_MAP = {
+    'eng': 'English', 'hin': 'Hindi', 'ara': 'Arabic', 'fre': 'French',
+    'fra': 'French', 'ger': 'German', 'deu': 'German', 'ita': 'Italian',
+    'jpn': 'Japanese', 'spa': 'Spanish', 'rus': 'Russian', 'chi': 'Chinese',
+    'zho': 'Chinese', 'kor': 'Korean', 'tam': 'Tamil', 'tel': 'Telugu',
+    'mal': 'Malayalam', 'kan': 'Kannada', 'ben': 'Bengali', 'urd': 'Urdu',
+    'tur': 'Turkish', 'por': 'Portuguese', 'ind': 'Indonesian', 'und': 'Unknown'
+}
+
+def get_lang_name(code):
+    """eng ko English me convert karne ke liye"""
+    return LANG_MAP.get(code.lower(), code.title())
+
 async def progress_for_pyrogram(current, total, ud_type, message, start):
     now = time.time()
     diff = now - start
-    if round(diff % 5.00) == 0 or current == total: # Update every 5 seconds to prevent rate limit
+    if round(diff % 5.00) == 0 or current == total: 
         percentage = current * 100 / total
         speed = current / diff if diff > 0 else 0
         elapsed_time = round(diff) * 1000
         time_to_completion = round((total - current) / speed) * 1000 if speed > 0 else 0
-        estimated_total_time = elapsed_time + time_to_completion
 
-        # Convert sizes to readable format
         def humanbytes(size):
             if not size: return "0 B"
             power = 2**10
